@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:camel="http://camel.apache.org/schema/spring"
+       xsi:schemaLocation="
+       http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+       http://camel.apache.org/schema/spring http://camel.apache.org/schema/spring/camel-spring.xsd">
+
+
+  <!-- AMQP connectivity -->
+  <bean id="jmsConnectionFactory"
+        class="org.apache.qpid.jms.JmsConnectionFactory"
+        primary="true">
+          <property name="remoteURI" value="${enmasse.remote.uri}" />
+          <property name="username" value="${enmasse.remote.username}" />
+          <property name="password" value="${enmasse.remote.password}" />
+  </bean>
+  <bean id="jmsCachingConnectionFactory"
+        class="org.springframework.jms.connection.CachingConnectionFactory">
+          <property name="targetConnectionFactory" ref="jmsConnectionFactory" />
+  </bean>
+  <bean id="jmsConfig"
+        class="org.apache.camel.component.jms.JmsConfiguration" >
+          <constructor-arg ref="jmsCachingConnectionFactory" /> 
+          <property name="cacheLevelName" value="CACHE_CONSUMER" />
+  </bean>    
+  <bean id="amqp"
+        class="org.apache.camel.component.amqp.AMQPComponent">
+          <property name="configuration" ref="jmsConfig" />
+  </bean> 
+
+
+  <!-- Helper classes  -->
+  <bean id="logger" class="org.demo.MyLogger"/>
+
+
+  <!-- Define a traditional camel context here -->
+  <camelContext id="camel" xmlns="http://camel.apache.org/schema/spring">
+
+    <route id="notification-fraud">
+      <from uri="amqp:topic:payment-notification"/>
+      <bean ref="logger" method="info(triggering fraud detection process...)"/>
+      <to uri="direct:process-fraud"/>
+    </route>
+
+    <!-- Main route -->
+    <route id="process-fraud">
+      <from uri="direct:process-fraud"/>
+      <bean ref="logger" method="info(executing fraud detection rules...)"/>
+    </route>
+
+
+  </camelContext>
+
+</beans>

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:camel="http://camel.apache.org/schema/spring"
+       xsi:schemaLocation="
+       http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+       http://camel.apache.org/schema/spring http://camel.apache.org/schema/spring/camel-spring.xsd">
+
+
+  <!-- Helper classes  -->
+  <bean id="helper" class="org.demo.Helper"/>
+  <bean id="logger" class="org.demo.MyLogger"/>
+
+
+  <!-- Define a traditional camel context here -->
+  <camelContext id="camel" xmlns="http://camel.apache.org/schema/spring">
+
+
+     <restConfiguration apiContextPath="api-docs" component="servlet"
+        contextPath="camel" enableCORS="true" port="{{camelrest.port}}" host="{{camelrest.host}}">
+        <apiProperty key="cors" value="true"/>
+        <apiProperty key="api.title" value="Demo Promotion REST APIs"/>
+        <apiProperty key="api.version" value="1.0.0"/>
+    </restConfiguration>
+
+    <!-- Promotion API -->
+    <rest path="/promotion">
+        <get produces="application/json" uri="/service/{id}">
+            <description>Obtains promotion code for given Identity</description>
+            <to uri="direct:promocode"/>
+        </get>
+    </rest>
+
+    <!-- Main route -->
+    <route id="promocode">
+        <from uri="direct:promocode"/>
+        <bean ref="logger" method="info(obtaining promocode for ID: ${header.id})"/>
+        <bean ref="helper" method="setRandomPromoCode"/>
+        <bean ref="logger" method="info(promo-code obtained: ${header.promocode})"/>
+    </route>
+
+  </camelContext>
+
+</beans>

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:camel="http://camel.apache.org/schema/spring"
+       xsi:schemaLocation="
+       http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+       http://camel.apache.org/schema/spring http://camel.apache.org/schema/spring/camel-spring.xsd">
+
+
+  <!-- Helper classes  -->
+  <bean id="helper" class="org.demo.Helper"/>
+  <bean id="logger" class="org.demo.MyLogger"/>
+
+  <!-- monitoring metrics -->
+  <bean class="org.apache.camel.component.metrics.routepolicy.MetricsRoutePolicy"
+          id="policy">
+    <property name="useJmx" value="true"/>
+    <property name="jmxDomain" value="fis.metrics"/>
+  </bean>
+
+  <!-- Define a traditional camel context here -->
+  <camelContext id="camel" xmlns="http://camel.apache.org/schema/spring">
+
+
+     <restConfiguration apiContextPath="api-docs" component="servlet"
+        contextPath="camel" enableCORS="true" port="{{camelrest.port}}" host="{{camelrest.host}}">
+        <apiProperty key="cors" value="true"/>
+        <apiProperty key="api.title" value="Demo Payment REST APIs"/>
+        <apiProperty key="api.version" value="1.0.0"/>
+    </restConfiguration>
+
+    <!-- Payment API -->
+    <rest path="/payment">
+        <post consumes="application/xml" produces="application/xml" uri="/service" type="org.demo.Payment" bindingMode="xml">
+            <description>Processes payment for given client and content</description>
+            <to uri="direct:payment"/>
+        </post>
+    </rest>
+
+    <!-- Main route -->
+    <route id="payment" routePolicyRef="policy">
+        <from uri="direct:payment"/>
+
+        <!-- logs -->
+        <bean ref="logger" method="info(Payment for client: ${body.getClientId})"/>
+        <bean ref="logger" method="info(Payment for content: ${body.getContent})"/>
+        <bean ref="logger" method="info(Payment discount code: ${body.getPromoCode})"/>
+
+        <!-- set response -->
+        <bean ref="helper" method="setStatus"/>
+        
+    </route>
+
+
+  </camelContext>
+
+</beans>

@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:camel="http://camel.apache.org/schema/spring"
+
+  xmlns:util="http://www.springframework.org/schema/util"
+       xsi:schemaLocation="
+
+       http://www.springframework.org/schema/util http://www.springframework.org/schema/util/spring-util.xsd
+
+       http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+       http://camel.apache.org/schema/spring http://camel.apache.org/schema/spring/camel-spring.xsd">
+
+
+
+  <!-- AMQP connectivity -->
+  <bean id="jmsConnectionFactory"
+        class="org.apache.qpid.jms.JmsConnectionFactory"
+        primary="true">
+          <property name="remoteURI" value="${enmasse.remote.uri}" />
+          <property name="username" value="${enmasse.remote.username}" />
+          <property name="password" value="${enmasse.remote.password}" />
+  </bean>
+  <bean id="jmsCachingConnectionFactory"
+        class="org.springframework.jms.connection.CachingConnectionFactory">
+          <property name="targetConnectionFactory" ref="jmsConnectionFactory" />
+  </bean>
+  <bean id="jmsConfig"
+        class="org.apache.camel.component.jms.JmsConfiguration" >
+          <constructor-arg ref="jmsCachingConnectionFactory" /> 
+          <property name="cacheLevelName" value="CACHE_CONSUMER" />
+  </bean>    
+  <bean id="amqp"
+        class="org.apache.camel.component.amqp.AMQPComponent">
+          <property name="configuration" ref="jmsConfig" />
+  </bean> 
+
+
+  <!-- Helper classes  -->
+  <bean id="logger" class="org.demo.MyLogger"/>
+
+  <!-- monitoring metrics -->
+  <bean class="org.apache.camel.component.metrics.routepolicy.MetricsRoutePolicy"
+          id="policy">
+    <property name="useJmx" value="true"/>
+    <property name="jmxDomain" value="fis.metrics"/>
+  </bean>
+
+
+  <!-- Define a traditional camel context here -->
+  <camelContext id="camel" xmlns="http://camel.apache.org/schema/spring">
+
+    <restConfiguration apiContextPath="api-docs" component="servlet"
+        contextPath="camel" enableCORS="true" port="{{camelrest.port}}" host="{{camelrest.host}}">
+        <apiProperty key="cors" value="true"/>
+        <apiProperty key="api.title" value="Demo Payment REST APIs"/>
+        <apiProperty key="api.version" value="1.0.0"/>
+    </restConfiguration>
+
+    <!-- Payment API -->
+    <rest path="/payment">
+        <post  consumes="application/xml" produces="application/xml" uri="/service" type="org.demo.Payment" bindingMode="xml">
+            <description>Processes payment for given client and content</description>
+            <to uri="direct:payment"/>
+        </post>
+    </rest>
+
+    <!-- Main route -->
+    <route id="payment" routePolicyRef="policy">
+      <from uri="direct:payment"/>
+
+      <!-- keep data -->
+      <setProperty propertyName="request">
+        <simple>${body}</simple>
+      </setProperty>
+      <setProperty propertyName="identifier">
+        <simple>${body.getClientId}</simple>
+      </setProperty>
+
+      <!-- log -->
+      <bean ref="logger" method="info('got request', true)"/>
+
+      <!-- Prepare Identity Call -->
+      <bean ref="logger" method="info('invoking identity service...', false)"/>
+      <removeHeaders pattern="*"/>
+      <setHeader headerName="CamelHttpMethod">
+        <constant>GET</constant>
+      </setHeader>
+      <setBody><constant/></setBody>
+
+      <!-- Call Identity -->
+      <toD uri="http4:{{demo.identity}}/camel/identity/resolve/${property.identifier}"/>
+
+      <!-- JSON to MAP -->
+      <to uri="dataformat:json-jackson:unmarshal?unmarshalTypeName=java.util.Map"/>
+
+      <!-- prepare Promotion call -->
+      <setProperty propertyName="identifier">
+        <simple resultType="String">${body.get('id')}</simple>
+      </setProperty>
+
+      <!-- log -->
+      <bean ref="logger" method="info('invoking promotion service...', false)"/>
+
+      <!-- Prepare Promotion Call -->
+      <removeHeaders pattern="*"/>
+      <setHeader headerName="CamelHttpMethod">
+        <constant>GET</constant>
+      </setHeader>
+      <setBody><constant/></setBody>
+
+      <!-- call Promotion service -->
+      <toD uri="http4:{{demo.promotion}}/camel/promotion/service/${property.identifier}"/>
+
+      <!-- JSON to MAP -->
+      <to uri="dataformat:json-jackson:unmarshal?unmarshalTypeName=java.util.Map"/>
+
+      <!-- prepare Payment call -->
+      <setProperty propertyName="promocode">
+        <simple resultType="String">${body.get('promocode')}</simple>
+      </setProperty>
+
+      <!-- replace obfuscated ID with cleared one -->
+      <to uri="language:simple:${property.request.setClientId(${property.identifier})}?transform=false"/>
+
+      <!-- maps the returned promocode into the incoming request -->
+      <to uri="language:simple:${property.request.setPromoCode(${body.get('promocode')})}?transform=false"/>   
+
+      <!-- log -->
+      <bean ref="logger" method="info('invoking payment service...', true)"/>
+
+      <!-- prepare Payment call -->
+      <removeHeaders pattern="*"/>
+      <setBody>
+        <simple>${property.request}</simple>
+      </setBody>
+      <to uri="dataformat:jaxb:marshal"/>
+ 
+      <!-- call Payment service -->
+      <toD uri="http4:{{demo.payment}}/camel/payment/service"/>
+
+      <convertBodyTo type="String"/>
+
+      <!-- send AMQP Notification -->
+      <to uri="amqp:topic:payment-notification?disableReplyTo=true"/>
+
+      <!-- log -->
+      <bean ref="logger" method="info('payment processed', false)"/>
+
+    </route>
+
+
+  </camelContext>
+
+</beans>
