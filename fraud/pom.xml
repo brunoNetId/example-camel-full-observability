@@ -19,7 +19,7 @@
 
     <ch.qos.logback.version>1.2.3</ch.qos.logback.version>
 
-    <swagger.ui.version>2.1.0</swagger.ui.version>
+    <swagger.ui.version>3.23.11</swagger.ui.version>
 
 
   </properties>
